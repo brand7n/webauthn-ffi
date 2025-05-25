@@ -1,8 +1,8 @@
 <?php
 
-namespace YourNamespace;
+namespace Remodulate;
 
-class YourModule
+class WebauthnFFI
 {
     private \FFI $ffi;
 
@@ -18,9 +18,14 @@ class YourModule
         $this->ffi = \FFI::cdef(file_get_contents($headerPath), $libPath);
     }
 
-    public function doSomething(int $x): int
+    public function ffiTest(): void
     {
-        return $this->ffi->your_function($x);
+        $json = json_encode(['op' => 'register_begin']);
+        $resultPtr = $this->ffi->rust_json_api($json);
+        $result = \FFI::string($resultPtr);
+        $this->ffi->free_string($resultPtr);
+
+        echo $result . PHP_EOL;
     }
 
     private function resolveLibraryPath(): string
@@ -37,5 +42,5 @@ class YourModule
     }
 }
 
-$a = new \YourNamespace\YourModule();
-echo($a->doSomething(5).PHP_EOL);
+$a = new WebauthnFFI();
+$a->ffiTest();
