@@ -1,17 +1,17 @@
 {
-  "name": "yourname/yourmodule",
+  "name": "remodulate/webauthn-ffi",
   "type": "library",
   "autoload": {
     "psr-4": {
-      "YourNamespace\\": "src/"
+      "Remodulate\\": "src/"
     }
   },
   "scripts": {
     "post-install-cmd": [
-      "YourNamespace\\Installer::installBinary"
+      "Remodulate\\Installer::installBinary"
     ],
     "post-update-cmd": [
-      "YourNamespace\\Installer::installBinary"
+      "Remodulate\\Installer::installBinary"
     ]
   },
   "require": {}

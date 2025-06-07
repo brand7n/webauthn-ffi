@@ -41,6 +41,3 @@ class WebauthnFFI
         return $base . $libName;
     }
 }
-
-$a = new WebauthnFFI();
-$a->ffiTest();

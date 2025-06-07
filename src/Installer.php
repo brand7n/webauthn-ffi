@@ -1,6 +1,6 @@
 <?php
 
-namespace YourNamespace;
+namespace Remodulate;
 
 class Installer
 {
