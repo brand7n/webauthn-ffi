@@ -7,8 +7,9 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
+webauthn-rs = { version = "*", features = ["danger-allow-state-serialisation", "danger-credential-internals"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-url = "2.5.4"
-uuid = "1.16.0"
-webauthn-rs = { version = "0.5.1", features = ["danger-allow-state-serialisation"] }
+url = "2.4"
+uuid = { version = "1.4", features = ["v4", "serde"] }
+base64 = "0.21"

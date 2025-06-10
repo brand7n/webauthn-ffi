@@ -48,7 +48,7 @@ class Installer
         }
 
         $binary = $binaries[0];
-        $dest = __DIR__ . '/../bin/libyourlib' . $ext;
+        $dest = __DIR__ . '/../bin/libwebauthn_ffi' . $ext;
         @mkdir(dirname($dest), 0777, true);
         copy($binary, $dest);
 
