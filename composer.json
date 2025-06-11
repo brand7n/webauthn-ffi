@@ -14,5 +14,8 @@
       "Remodulate\\Installer::installBinary"
     ]
   },
-  "require": {}
+  "require": {
+    "php": ">=8.4",
+    "ext-ffi": "*"
+  }
 }
