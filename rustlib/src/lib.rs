@@ -68,10 +68,9 @@ fn get_webauthn(rp_id: &str, rp_origin: &str) -> Result<&'static Webauthn, Strin
         let builder = WebauthnBuilder::new(rp_id, &rp_origin).expect("Failed to create WebauthnBuilder");
         log("Created WebauthnBuilder");
         
-        let webauthn = builder.rp_name("Example Corp").build().expect("Failed to build Webauthn instance");
-        log("Built Webauthn instance");
+        // let webauthn = builder.rp_name("Example Corp").build().expect("Failed to build Webauthn instance");
         
-        webauthn
+        builder.build().expect("Failed to build Webauthn instance")
     });
     
     Ok(WEBAUTHN.get().expect("Webauthn instance should be initialized"))

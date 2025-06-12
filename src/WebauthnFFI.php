@@ -8,6 +8,9 @@ class WebauthnFFI
     private const HEADER_PATH = __DIR__ . '/../ffi/webauthn.h';
     private const LOG_FILE = '/tmp/webauthn_ffi_php.log';
 
+    private string $rp_id = 'rego.test';
+    private string $rp_origin = 'https://rego.test';
+
     private function log(string $message): void
     {
         $timestamp = date('Y-m-d H:i:s.v');
@@ -102,18 +105,10 @@ class WebauthnFFI
     }
 
     private function getRpInfo(): array
-    {
-        $rp_id = parse_url(config('app.url'), PHP_URL_HOST);
-        if (!$rp_id) {
-            throw new \RuntimeException("Could not determine RP ID from app.url configuration");
-        }
-        
-        $rp_origin = rtrim(config('app.url'), '/');
-        $this->log("Using RP ID: {$rp_id}, Origin: {$rp_origin}");
-        
+    {   
         return [
-            'rp_id' => $rp_id,
-            'rp_origin' => $rp_origin
+            'rp_id' => $this->rp_id,
+            'rp_origin' => $this->rp_origin
         ];
     }
 
