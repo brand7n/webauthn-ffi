@@ -2,57 +2,95 @@ use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use serde_json::Value;
 use serde::Serialize;
+use serde_json::json;                                                      
 use webauthn_rs::prelude::*;
 use std::sync::OnceLock;
 use url::Url;
 use uuid::Uuid;
+use base64::Engine;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::sync::Mutex;
+use chrono::Local;
+use serde_cbor;
 
 #[derive(Serialize)]
 struct RegistrationOutput {
     challenge: CreationChallengeResponse,
-    registration: PasskeyRegistration,
+    registration: Value,
     uuid: Uuid,
 }
 
 #[derive(Serialize)]
 struct AuthenticationOutput {
     challenge: RequestChallengeResponse,
-    auth_state: PasskeyAuthentication,
+    auth_state: Value,
+}
+
+#[derive(Serialize)]
+struct ErrorResponse {
+    error: String,
+    details: Option<String>,
 }
 
 static WEBAUTHN: OnceLock<Webauthn> = OnceLock::new();
+static LOG_FILE: OnceLock<Mutex<std::fs::File>> = OnceLock::new();
 
-fn get_webauthn() -> &'static Webauthn {
-    println!("Initializing Webauthn instance");
+fn init_logger() {
+    LOG_FILE.get_or_init(|| {
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/tmp/webauthn_ffi.log")
+            .expect("Failed to open log file");
+        Mutex::new(file)
+    });
+}
+
+fn log(message: &str) {
+    if let Some(file) = LOG_FILE.get() {
+        if let Ok(mut file) = file.lock() {
+            let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+            let _ = writeln!(file, "[{}] {}", timestamp, message);
+            let _ = file.flush();
+        }
+    }
+}
+
+fn get_webauthn(rp_id: &str, rp_origin: &str) -> Result<&'static Webauthn, String> {
+    log(&format!("Getting Webauthn instance for RP ID: {}, Origin: {}", rp_id, rp_origin));
+    
     WEBAUTHN.get_or_init(|| {
-        let rp_id = "example.com";
-        let rp_origin = Url::parse("https://example.com").unwrap();
-
-        println!("RP ID: {}", rp_id);
-        println!("RP Origin: {}", rp_origin);
-
-        let builder = WebauthnBuilder::new(rp_id, &rp_origin)
-            .expect("Failed to create WebauthnBuilder");
-        println!("Created WebauthnBuilder");
-
-        let webauthn = builder
-            .rp_name("Example Corp")
-            .build()
-            .expect("Failed to build Webauthn instance");
-        println!("Built Webauthn instance");
-
+        log("Initializing new Webauthn instance");
+        let rp_origin = Url::parse(rp_origin).expect("Failed to parse RP origin URL");
+        log(&format!("Parsed RP origin URL: {}", rp_origin));
+        
+        let builder = WebauthnBuilder::new(rp_id, &rp_origin).expect("Failed to create WebauthnBuilder");
+        log("Created WebauthnBuilder");
+        
+        let webauthn = builder.rp_name("Example Corp").build().expect("Failed to build Webauthn instance");
+        log("Built Webauthn instance");
+        
         webauthn
-    })
+    });
+    
+    Ok(WEBAUTHN.get().expect("Webauthn instance should be initialized"))
+}
+
+fn error_log(message: &str) {
+    // Write to stderr which PHP will capture
+    eprintln!("[WebAuthn] {}", message);
 }
 
 #[no_mangle]
 pub extern "C" fn rust_json_api(input: *const c_char) -> *mut c_char {
-    println!("rust_json_api called");
+    init_logger();
+    log("rust_json_api called");
     
     let c_str = unsafe {
         if input.is_null() {
-            println!("Input is null");
-            return std::ptr::null_mut();
+            log("Input is null");
+            return create_error_response("Input is null", None);
         }
         CStr::from_ptr(input)
     };
@@ -60,28 +98,28 @@ pub extern "C" fn rust_json_api(input: *const c_char) -> *mut c_char {
     let input_str = match c_str.to_str() {
         Ok(s) => s,
         Err(e) => {
-            println!("Failed to convert input to string: {}", e);
-            return std::ptr::null_mut();
+            log(&format!("Failed to convert input to string: {}", e));
+            return create_error_response("Failed to convert input to string", Some(e.to_string()));
         }
     };
 
-    println!("Received input: {}", input_str);
+    log(&format!("Received input: {}", input_str));
 
     let output_str = match handle_json(input_str) {
         Ok(s) => s,
         Err(e) => {
-            println!("Error handling JSON: {:?}", e);
-            return std::ptr::null_mut();
+            log(&format!("Error handling JSON: {}", e));
+            return create_error_response("Error handling JSON", Some(e));
         }
     };
 
-    println!("Sending response: {}", output_str);
+    log(&format!("Sending response: {}", output_str));
 
     match CString::new(output_str) {
         Ok(s) => s.into_raw(),
         Err(e) => {
-            println!("Failed to create CString: {}", e);
-            std::ptr::null_mut()
+            log(&format!("Failed to create CString: {}", e));
+            create_error_response("Failed to create CString", Some(e.to_string()))
         }
     }
 }
@@ -89,143 +127,145 @@ pub extern "C" fn rust_json_api(input: *const c_char) -> *mut c_char {
 #[no_mangle]
 pub extern "C" fn free_string(ptr: *mut c_char) {
     if !ptr.is_null() {
-        unsafe { let _ = CString::from_raw(ptr); };
+        unsafe {
+            // Convert the raw pointer back to a CString and let it drop
+            let _ = CString::from_raw(ptr);
+        }
     }
 }
 
-fn handle_json(input: &str) -> Result<String, ()> {
-    println!("Parsing JSON input");
+fn create_error_response(message: &str, details: Option<String>) -> *mut c_char {
+    let error = ErrorResponse {
+        error: message.to_string(),
+        details,
+    };
+    
+    match serde_json::to_string(&error) {
+        Ok(s) => match CString::new(s) {
+            Ok(s) => s.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        },
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+fn handle_json(input: &str) -> Result<String, String> {
+    log("Parsing JSON input");
     let v: Value = serde_json::from_str(input).map_err(|e| {
-        println!("Failed to parse JSON: {}", e);
-        ()
+        log(&format!("Failed to parse JSON: {}", e));
+        format!("Failed to parse JSON: {}", e)
     })?;
     
     let op = v.get("op").and_then(|v| v.as_str()).ok_or_else(|| {
-        println!("Missing or invalid 'op' field");
-        ()
+        log("Missing or invalid 'op' field");
+        "Missing or invalid 'op' field".to_string()
     })?;
 
-    println!("Operation: {}", op);
+    log(&format!("Operation: {}", op));
 
     let result = match op {
-        "register_begin" => handle_register_begin(&v),
-        "register_finish" => handle_register_finish(&v),
-        "login_begin" => handle_login_begin(&v),
-        "login_finish" => handle_login_finish(v),
+        "register_begin" => {
+            log("Handling register_begin");
+            handle_register_begin(&v)
+        },
+        "register_finish" => {
+            log("Handling register_finish");
+            handle_register_finish(&v)
+        },
+        // "login_begin" => {
+        //     log("Handling login_begin");
+        //     handle_login_begin(&v)
+        // },
+        // "login_finish" => {
+        //     log("Handling login_finish");
+        //     handle_login_finish(v)
+        // },
         _ => {
-            println!("Unknown operation: {}", op);
-            Err(())
+            log(&format!("Unknown operation: {}", op));
+            Err(format!("Unknown operation: {}", op))
         }
     }?;
 
-    println!("Operation completed successfully");
+    log("Operation completed successfully");
     Ok(serde_json::to_string(&result).unwrap())
 }
 
-fn handle_register_begin(v: &Value) -> Result<Value, ()> {
-    println!("Handling register_begin");
+fn handle_register_begin(v: &Value) -> Result<Value, String> {
     let user_id = v.get("user_id").and_then(|v| v.as_str()).ok_or_else(|| {
-        println!("Missing user_id");
-        ()
+        "Missing user_id".to_string()
     })?;
     let user_name = v.get("user_name").and_then(|v| v.as_str()).ok_or_else(|| {
-        println!("Missing user_name");
-        ()
+        "Missing user_name".to_string()
+    })?;
+    let rp_id = v.get("rp_id").and_then(|v| v.as_str()).ok_or_else(|| {
+        "Missing rp_id".to_string()
+    })?;
+    let rp_origin = v.get("rp_origin").and_then(|v| v.as_str()).ok_or_else(|| {
+        "Missing rp_origin".to_string()
     })?;
     
-    println!("Starting registration for user: {} ({})", user_name, user_id);
-    let result = start_registration(user_id, user_name);
-    println!("Registration started successfully");
+    log(&format!("Starting registration with RP ID: {}, Origin: {}", rp_id, rp_origin));
     
+    let webauthn = get_webauthn(rp_id, rp_origin)?;
+    let result = start_registration(webauthn, user_id, user_name);
     Ok(serde_json::to_value(result).unwrap())
 }
 
-fn handle_register_finish(v: &Value) -> Result<Value, ()> {
-    println!("Handling register_finish request");
-    
+fn handle_register_finish(v: &Value) -> Result<Value, String> {
     let registration = v.get("registration").ok_or_else(|| {
-        println!("Missing registration data");
-        ()
+        "Missing registration data".to_string()
     })?;
     
     let client_data = v.get("client_data").and_then(|v| v.as_str()).ok_or_else(|| {
-        println!("Missing client_data");
-        ()
+        "Missing client_data".to_string()
     })?;
 
-    println!("Received data - client_data: {}", client_data);
+    let rp_id = v.get("rp_id").and_then(|v| v.as_str()).ok_or_else(|| {
+        "Missing rp_id".to_string()
+    })?;
+    let rp_origin = v.get("rp_origin").and_then(|v| v.as_str()).ok_or_else(|| {
+        "Missing rp_origin".to_string()
+    })?;
 
-    let webauthn = get_webauthn();
+    log(&format!("Finishing registration with RP ID: {}, Origin: {}", rp_id, rp_origin));
+    
+    let webauthn = get_webauthn(rp_id, rp_origin)?;
     
     // Parse the registration state
     let registration: PasskeyRegistration = serde_json::from_value(registration.clone()).map_err(|e| {
-        println!("Failed to parse registration data: {}", e);
-        ()
+        format!("Failed to parse registration data: {}", e)
     })?;
 
     // Parse the credential from the JSON data
     let credential: RegisterPublicKeyCredential = serde_json::from_str(client_data).map_err(|e| {
-        println!("Failed to parse credential: {}", e);
-        ()
+        format!("Failed to parse credential: {}", e)
     })?;
-
-    println!("Attempting to finish registration");
+    
+    log(&format!("Parsed credential data: {:?}", credential));
     
     let result = webauthn
         .finish_passkey_registration(&credential, &registration)
         .map_err(|e| {
-            println!("Failed to finish registration: {}", e);
-            ()
+            format!("Failed to finish registration: {}", e)
         })?;
     
-    println!("Registration completed successfully");
+    // Format the result to match the expected structure
+    let formatted_result = json!({
+        "credential": {
+            "id": base64::engine::general_purpose::STANDARD.encode(result.cred_id().as_ref()),
+            "counter": 0, // Initial counter value
+            "public_key": {
+                "id": base64::engine::general_purpose::STANDARD.encode(result.cred_id().as_ref()),
+                "public_key": base64::engine::general_purpose::STANDARD.encode(serde_cbor::to_vec(result.get_public_key()).unwrap()),
+                "counter": 0,
+            },
+        }
+    });
     
-    Ok(serde_json::to_value(result).unwrap())
+    Ok(formatted_result)
 }
 
-fn handle_login_begin(v: &Value) -> Result<Value, ()> {
-    let _user_id = v.get("user_id").and_then(|v| v.as_str()).ok_or(())?;
-    let passkeys = v.get("passkeys")
-        .and_then(|v| v.as_array())
-        .ok_or(())?
-        .iter()
-        .filter_map(|v| serde_json::from_value::<Passkey>(v.clone()).ok())
-        .collect::<Vec<_>>();
-
-    if passkeys.is_empty() {
-        return Err(());
-    }
-
-    let webauthn = get_webauthn();
-    let (challenge, auth_state) = webauthn
-        .start_passkey_authentication(&passkeys)
-        .map_err(|_| ())?;
-
-    let output = AuthenticationOutput {
-        challenge,
-        auth_state,
-    };
-
-    Ok(serde_json::to_value(output).unwrap())
-}
-
-pub fn handle_login_finish(v: Value) -> Result<Value, ()> {
-    let auth_state = v.get("auth_state").ok_or(())?;
-    let client_data = v.get("client_data").and_then(|v| v.as_str()).ok_or(())?;
-    
-    let webauthn = get_webauthn();
-    let auth_state: PasskeyAuthentication = serde_json::from_value(auth_state.clone()).map_err(|_| ())?;
-    let credential: PublicKeyCredential = serde_json::from_str(client_data).map_err(|_| ())?;
-    
-    let result = webauthn
-        .finish_passkey_authentication(&credential, &auth_state)
-        .map_err(|_| ())?;
-    
-    Ok(serde_json::to_value(result).unwrap())
-}
-
-fn start_registration(user_id: &str, user_name: &str) -> RegistrationOutput {
-    let webauthn = get_webauthn();
+fn start_registration(webauthn: &Webauthn, user_id: &str, user_name: &str) -> RegistrationOutput {
     let uuid = Uuid::new_v4();
     let (challenge, registration) = webauthn
         .start_passkey_registration(
@@ -236,9 +276,14 @@ fn start_registration(user_id: &str, user_name: &str) -> RegistrationOutput {
         )
         .expect("Failed to start registration");
 
+    log(&format!("Generated registration challenge: {:?}", challenge));
+
+    // Store the complete registration state
+    let registration_json = serde_json::to_value(registration).expect("Failed to serialize registration state");
+
     RegistrationOutput {
         challenge,
-        registration,
+        registration: registration_json,
         uuid,
     }
 }
