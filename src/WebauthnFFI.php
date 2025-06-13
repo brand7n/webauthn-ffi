@@ -8,8 +8,8 @@ class WebauthnFFI
     private const HEADER_PATH = __DIR__ . '/../ffi/webauthn.h';
     private const LOG_FILE = '/tmp/webauthn_ffi_php.log';
 
-    private string $rp_id = 'rego.test';
-    private string $rp_origin = 'https://rego.test';
+    private string $rp_id;
+    private string $rp_origin;
 
     private function log(string $message): void
     {
@@ -18,8 +18,11 @@ class WebauthnFFI
         file_put_contents(self::LOG_FILE, $logMessage, FILE_APPEND);
     }
 
-    public function __construct()
+    public function __construct(string $rp_id, string $rp_origin)
     {
+        $this->rp_id = $rp_id;
+        $this->rp_origin = $rp_origin;
+
         try {
             $this->checkFFIExtension();
             $this->checkLibraryFile();

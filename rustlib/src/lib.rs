@@ -253,11 +253,7 @@ fn handle_register_finish(v: &Value) -> Result<Value, String> {
         "credential": {
             "id": base64::engine::general_purpose::STANDARD.encode(result.cred_id().as_ref()),
             "counter": 0, // Initial counter value
-            "public_key": {
-                "id": base64::engine::general_purpose::STANDARD.encode(result.cred_id().as_ref()),
-                "public_key": base64::engine::general_purpose::STANDARD.encode(serde_cbor::to_vec(result.get_public_key()).unwrap()),
-                "counter": 0,
-            },
+            "public_key": base64::engine::general_purpose::STANDARD.encode(serde_cbor::to_vec(result.get_public_key()).unwrap()),
         }
     });
     
