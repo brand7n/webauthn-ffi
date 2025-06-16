@@ -76,10 +76,10 @@ fn get_webauthn(rp_id: &str, rp_origin: &str) -> Result<&'static Webauthn, Strin
     Ok(WEBAUTHN.get().expect("Webauthn instance should be initialized"))
 }
 
-fn error_log(message: &str) {
-    // Write to stderr which PHP will capture
-    eprintln!("[WebAuthn] {}", message);
-}
+// fn error_log(message: &str) {
+//     // Write to stderr which PHP will capture
+//     eprintln!("[WebAuthn] {}", message);
+// }
 
 #[no_mangle]
 pub extern "C" fn rust_json_api(input: *const c_char) -> *mut c_char {
@@ -190,74 +190,72 @@ fn handle_json(input: &str) -> Result<String, String> {
 }
 
 fn handle_register_begin(v: &Value) -> Result<Value, String> {
-    let user_id = v.get("user_id").and_then(|v| v.as_str()).ok_or_else(|| {
-        "Missing user_id".to_string()
-    })?;
-    let user_name = v.get("user_name").and_then(|v| v.as_str()).ok_or_else(|| {
-        "Missing user_name".to_string()
-    })?;
-    let rp_id = v.get("rp_id").and_then(|v| v.as_str()).ok_or_else(|| {
-        "Missing rp_id".to_string()
-    })?;
-    let rp_origin = v.get("rp_origin").and_then(|v| v.as_str()).ok_or_else(|| {
-        "Missing rp_origin".to_string()
+    #[derive(serde::Deserialize)]
+    struct RegisterBeginRequest {
+        user_id: String,
+        user_name: String,
+        rp_id: String,
+        rp_origin: String,
+    }
+    
+    let req: RegisterBeginRequest = serde_json::from_value(v.clone()).map_err(|e| {
+        format!("Failed to parse register_begin request: {}", e)
     })?;
     
-    log(&format!("Starting registration with RP ID: {}, Origin: {}", rp_id, rp_origin));
+    log(&format!("Starting registration with RP ID: {}, Origin: {}", req.rp_id, req.rp_origin));
     
-    let webauthn = get_webauthn(rp_id, rp_origin)?;
-    let result = start_registration(webauthn, user_id, user_name);
+    let webauthn = get_webauthn(&req.rp_id, &req.rp_origin)?;
+    let result = start_registration(webauthn, &req.user_id, &req.user_name);
     Ok(serde_json::to_value(result).unwrap())
 }
 
 fn handle_register_finish(v: &Value) -> Result<Value, String> {
-    let registration = v.get("registration").ok_or_else(|| {
-        "Missing registration data".to_string()
-    })?;
+    #[derive(serde::Deserialize)]
+    struct RegisterFinishRequest {
+        registration: PasskeyRegistration,
+        client_data: RegisterPublicKeyCredential,
+        rp_id: String,
+        rp_origin: String,
+    }
     
-    let client_data = v.get("client_data").and_then(|v| v.as_str()).ok_or_else(|| {
-        "Missing client_data".to_string()
+    let req: RegisterFinishRequest = serde_json::from_value(v.clone()).map_err(|e| {
+        format!("Failed to parse register_finish request: {}", e)
     })?;
 
-    let rp_id = v.get("rp_id").and_then(|v| v.as_str()).ok_or_else(|| {
-        "Missing rp_id".to_string()
-    })?;
-    let rp_origin = v.get("rp_origin").and_then(|v| v.as_str()).ok_or_else(|| {
-        "Missing rp_origin".to_string()
-    })?;
-
-    log(&format!("Finishing registration with RP ID: {}, Origin: {}", rp_id, rp_origin));
+    log(&format!("Finishing registration with RP ID: {}, Origin: {}", req.rp_id, req.rp_origin));
     
-    let webauthn = get_webauthn(rp_id, rp_origin)?;
+    let webauthn = get_webauthn(&req.rp_id, &req.rp_origin)?;
     
-    // Parse the registration state
-    let registration: PasskeyRegistration = serde_json::from_value(registration.clone()).map_err(|e| {
-        format!("Failed to parse registration data: {}", e)
-    })?;
-
-    // Parse the credential from the JSON data
-    let credential: RegisterPublicKeyCredential = serde_json::from_str(client_data).map_err(|e| {
-        format!("Failed to parse credential: {}", e)
-    })?;
-    
-    log(&format!("Parsed credential data: {:?}", credential));
+    log(&format!("Parsed credential data: {:?}", req.client_data));
     
     let result = webauthn
-        .finish_passkey_registration(&credential, &registration)
+        .finish_passkey_registration(&req.client_data, &req.registration)
         .map_err(|e| {
             format!("Failed to finish registration: {}", e)
         })?;
     
+    #[derive(serde::Serialize)]
+    struct CredentialResult {
+        id: String,
+        counter: u32,
+        public_key: String,
+    }
+
+    #[derive(serde::Serialize)]
+    struct RegisterFinishResponse {
+        credential: CredentialResult,
+    }
+
     // Format the result to match the expected structure
-    let formatted_result = json!({
-        "credential": {
-            "id": base64::engine::general_purpose::STANDARD.encode(result.cred_id().as_ref()),
-            "counter": 0, // Initial counter value
-            "public_key": base64::engine::general_purpose::STANDARD.encode(serde_cbor::to_vec(result.get_public_key()).unwrap()),
+    let formatted_result = RegisterFinishResponse {
+        credential: CredentialResult {
+            id: base64::engine::general_purpose::STANDARD.encode(result.cred_id().as_ref()),
+            counter: 0, // Initial counter value
+            public_key: base64::engine::general_purpose::STANDARD.encode(serde_cbor::to_vec(result.get_public_key()).unwrap()),
         }
-    });
+    };
     
-    Ok(formatted_result)
+    Ok(serde_json::to_value(formatted_result).unwrap())
 }
 
 fn start_registration(webauthn: &Webauthn, user_id: &str, user_name: &str) -> RegistrationOutput {
