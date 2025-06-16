@@ -2,34 +2,32 @@
 
 namespace Remodulate;
 
+use Psr\Log\LoggerInterface;
+
 class WebauthnFFI
 {
     private \FFI $ffi;
     private const HEADER_PATH = __DIR__ . '/../ffi/webauthn.h';
-    private const LOG_FILE = '/tmp/webauthn_ffi_php.log';
-
+    private LoggerInterface $logger;
     private string $rp_id;
     private string $rp_origin;
 
-    private function log(string $message): void
+    public function __construct(LoggerInterface $logger, string $rp_id, string $rp_origin)
     {
-        $timestamp = date('Y-m-d H:i:s.v');
-        $logMessage = "[{$timestamp}] {$message}\n";
-        file_put_contents(self::LOG_FILE, $logMessage, FILE_APPEND);
-    }
-
-    public function __construct(string $rp_id, string $rp_origin)
-    {
+        $this->logger = $logger;
         $this->rp_id = $rp_id;
         $this->rp_origin = $rp_origin;
 
         try {
+            $this->logger->debug("Starting WebauthnFFI constructor");
             $this->checkFFIExtension();
             $this->checkLibraryFile();
             
+            $this->logger->debug("Initializing FFI");
             $this->initializeFFI();
+            $this->logger->debug("FFI initialized successfully");
         } catch (\Throwable $e) {
-            $this->log("Error in WebauthnFFI constructor: " . $e->getMessage() . "\n" . $e->getTraceAsString());
+            $this->logger->error("Error in WebauthnFFI constructor: " . $e->getMessage() . "\n" . $e->getTraceAsString());
             throw $e;
         }
     }
@@ -37,51 +35,27 @@ class WebauthnFFI
     private function checkFFIExtension(): void
     {
         if (!extension_loaded('ffi')) {
-            throw new \RuntimeException('FFI extension is not loaded. Please install and enable the FFI extension.');
+            $this->logger->error("FFI extension is not loaded");
+            throw new \RuntimeException("FFI extension is not loaded");
         }
-
-        if (!ini_get('ffi.enable')) {
-            if (!ini_set('ffi.enable', true)) {
-                throw new \RuntimeException('FFI is not enabled and cannot be enabled at runtime. Please enable it in your PHP configuration.');
-            }
-        }
-
-        $this->log("FFI extension is loaded and enabled");
+        $this->logger->debug("FFI extension is loaded");
     }
 
     private function checkLibraryFile(): void
     {
         $libPath = $this->resolveLibraryPath();
-        $this->log("Checking library file: " . $libPath);
-
         if (!file_exists($libPath)) {
-            throw new \RuntimeException("FFI library not found at: $libPath");
+            $this->logger->error("FFI library not found at: " . $libPath);
+            throw new \RuntimeException("FFI library not found at: " . $libPath);
         }
-
-        if (!is_readable($libPath)) {
-            throw new \RuntimeException("FFI library is not readable: $libPath");
-        }
-
-        // Check file permissions
-        $perms = fileperms($libPath);
-        $this->log("Library file permissions: " . decoct($perms & 0777));
-
-        // Check file size
-        $size = filesize($libPath);
-        $this->log("Library file size: " . $size . " bytes");
-
-        // Try to get file type
-        $type = mime_content_type($libPath);
-        $this->log("Library file type: " . $type);
-
-        $this->log("Library file checks passed");
+        $this->logger->debug("FFI library found at: " . $libPath);
     }
 
     private function initializeFFI(): void
     {
         try {
             $libPath = $this->resolveLibraryPath();
-            $this->log("Attempting to load FFI library from: " . $libPath);
+            $this->logger->debug("Attempting to load FFI library from: " . $libPath);
             
             if (!file_exists(self::HEADER_PATH)) {
                 throw new \RuntimeException("FFI header not found at: " . self::HEADER_PATH);
@@ -92,17 +66,17 @@ class WebauthnFFI
                 throw new \RuntimeException("Could not read FFI header");
             }
 
-            $this->log("FFI header content: " . $header);
+            $this->logger->debug("FFI header content: " . $header);
 
             try {
                 $this->ffi = \FFI::cdef($header, $libPath);
-                $this->log("FFI initialized successfully");
+                $this->logger->debug("FFI initialized successfully");
             } catch (\FFI\Exception $e) {
-                $this->log("FFI initialization failed: " . $e->getMessage());
+                $this->logger->error("FFI initialization failed: " . $e->getMessage());
                 throw new \RuntimeException("Failed to initialize FFI: " . $e->getMessage());
             }
         } catch (\Throwable $e) {
-            $this->log("Error during FFI initialization: " . $e->getMessage() . "\n" . $e->getTraceAsString());
+            $this->logger->error("Error during FFI initialization: " . $e->getMessage() . "\n" . $e->getTraceAsString());
             throw new \RuntimeException("FFI initialization failed: " . $e->getMessage());
         }
     }
@@ -119,7 +93,7 @@ class WebauthnFFI
     {
         // Add RP information to the request
         $params = array_merge($params, $this->getRpInfo());
-        $this->log("Register begin params: " . json_encode($params));
+        $this->logger->debug("Register begin params: " . json_encode($params));
         
         return $this->callFFI('register_begin', $params);
     }
@@ -128,25 +102,32 @@ class WebauthnFFI
     {
         // Add RP information to the request
         $params = array_merge($params, $this->getRpInfo());
-        $this->log("Register finish params: " . json_encode($params));
+        $this->logger->debug("Register finish params: " . json_encode($params));
         
         return $this->callFFI('register_finish', $params);
     }
 
     public function authenticateBegin(array $params): array
     {
-        // Add RP information to the request
-        $params = array_merge($params, $this->getRpInfo());
-        $this->log("Authenticate begin params: " . json_encode($params));
-        
-        return $this->callFFI('login_begin', $params);
+        try {
+            $this->logger->debug("Getting authentication options", ['params' => $params]);
+            
+            // Add RP information to the request
+            $params = array_merge($params, $this->getRpInfo());
+            $this->logger->debug("Authenticate begin params: " . json_encode($params));
+            
+            return $this->callFFI('login_begin', $params);
+        } catch (\Throwable $e) {
+            $this->logger->error("Error in authenticateBegin: " . $e->getMessage() . "\n" . $e->getTraceAsString());
+            throw new \RuntimeException("Failed to get authentication options: " . $e->getMessage());
+        }
     }
 
     public function authenticateFinish(array $params): array
     {
         // Add RP information to the request
         $params = array_merge($params, $this->getRpInfo());
-        $this->log("Authenticate finish params: " . json_encode($params));
+        $this->logger->debug("Authenticate finish params: " . json_encode($params));
         
         return $this->callFFI('login_finish', $params);
     }
@@ -158,32 +139,32 @@ class WebauthnFFI
             ...$params
         ];
 
-        $this->log("Preparing FFI call for operation: " . $operation);
-        $this->log("Request parameters: " . json_encode($params));
+        $this->logger->debug("Preparing FFI call for operation: " . $operation);
+        $this->logger->debug("Request parameters: " . json_encode($params, JSON_PRETTY_PRINT));
 
         $json = $this->serializeJson($request);
-        $this->log("Serialized request: " . $json);
+        $this->logger->debug("Serialized request: " . $json);
         
         try {
             $result = $this->rust_json_api($json);
             
             if ($result === null) {
-                $this->log("FFI call returned null for operation: " . $operation);
+                $this->logger->error("FFI call returned null for operation: " . $operation);
                 throw new \RuntimeException("FFI call failed for operation: $operation");
             }
 
-            $this->log("FFI call successful, deserializing result");
+            $this->logger->debug("FFI call successful, deserializing result");
             $data = $this->deserializeJson($result);
-            $this->log("Deserialized result: " . json_encode($data));
+            $this->logger->debug("Deserialized result: " . json_encode($data, JSON_PRETTY_PRINT));
             
             if (isset($data['error'])) {
-                $this->log("FFI returned error: " . json_encode($data));
+                $this->logger->error("FFI returned error: " . json_encode($data));
                 throw new \RuntimeException($data['error'] . (isset($data['details']) ? ': ' . $data['details'] : ''));
             }
             
             return $data;
         } catch (\Throwable $e) {
-            $this->log("FFI call failed: " . $e->getMessage() . "\n" . $e->getTraceAsString());
+            $this->logger->error("FFI call failed: " . $e->getMessage() . "\n" . $e->getTraceAsString());
             throw $e;
         }
     }
@@ -193,7 +174,7 @@ class WebauthnFFI
         $json = json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         if ($json === false) {
             $error = json_last_error_msg();
-            $this->log("JSON encoding failed: " . $error);
+            $this->logger->error("JSON encoding failed: " . $error);
             throw new \RuntimeException("JSON encoding failed: " . $error);
         }
         return $json;
@@ -204,7 +185,7 @@ class WebauthnFFI
         $data = json_decode($json, true);
         if ($data === null) {
             $error = json_last_error_msg();
-            $this->log("JSON decoding failed: " . $error . " for JSON: " . $json);
+            $this->logger->error("JSON decoding failed: " . $error . " for JSON: " . $json);
             throw new \RuntimeException("JSON decoding failed: " . $error);
         }
         return $data;
@@ -213,10 +194,10 @@ class WebauthnFFI
     private function rust_json_api(string $json): ?string
     {
         try {
-            $this->log("FFI call with input: " . $json);
+            $this->logger->debug("FFI call with input: " . $json);
             
             if (!isset($this->ffi)) {
-                $this->log("FFI not initialized");
+                $this->logger->error("FFI not initialized");
                 throw new \RuntimeException("FFI not initialized");
             }
             
@@ -225,31 +206,31 @@ class WebauthnFFI
             \FFI::memcpy($cString, $json, strlen($json));
             $cString[strlen($json)] = "\0";
 
-            $this->log("Calling rust_json_api function");
+            $this->logger->debug("Calling rust_json_api function");
             
             // Call the FFI function
             $resultPtr = $this->ffi->rust_json_api($cString);
             
             if ($resultPtr === null) {
-                $this->log("FFI returned null for input: " . $json);
+                $this->logger->error("FFI returned null for input: " . $json);
                 throw new \RuntimeException("FFI returned null");
             }
             
             if (!($resultPtr instanceof \FFI\CData)) {
-                $this->log("FFI returned invalid type: " . gettype($resultPtr));
+                $this->logger->error("FFI returned invalid type: " . gettype($resultPtr));
                 throw new \RuntimeException("FFI returned invalid type: " . gettype($resultPtr));
             }
 
-            $this->log("Converting result to string");
+            $this->logger->debug("Converting result to string");
             $result = \FFI::string($resultPtr);
             
-            $this->log("Freeing result pointer");
+            $this->logger->debug("Freeing result pointer");
             $this->ffi->free_string($resultPtr);
             
-            $this->log("FFI call result: " . $result);
+            $this->logger->debug("FFI call result: " . $result);
             return $result;
         } catch (\Throwable $e) {
-            $this->log("FFI error: " . $e->getMessage() . "\n" . $e->getTraceAsString());
+            $this->logger->error("FFI error: " . $e->getMessage() . "\n" . $e->getTraceAsString());
             throw $e;
         }
     }
@@ -265,7 +246,7 @@ class WebauthnFFI
 
         $libName = 'libwebauthn_ffi' . $ext;
         $path = $base . $libName;
-        $this->log("Resolved library path: " . $path);
+        $this->logger->debug("Resolved library path: " . $path);
         return $path;
     }
 }
