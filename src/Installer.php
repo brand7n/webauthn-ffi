@@ -7,7 +7,6 @@ class Installer
     public static function installBinary()
     {
         $whichCargo = shell_exec('command -v cargo');
-
         if (!$whichCargo) {
             echo "⚠️  Rust (cargo) is not installed or not in your PATH.\n";
             system('curl https://sh.rustup.rs -sSf | sh -s -- -y');
@@ -17,9 +16,8 @@ class Installer
                 exit(-1);
             }
         }
-        echo "🔧 Building Rust FFI library...\n";
 
-	system('curl https://sh.rustup.rs -sSf | sh -s -- -y');
+        echo "🔧 Building Rust FFI library...\n";
 
         $rustDir = __DIR__ . '/../rustlib';
         $release = true;
