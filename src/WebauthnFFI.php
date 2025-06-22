@@ -129,6 +129,8 @@ class WebauthnFFI
         $params = array_merge($params, $this->getRpInfo());
         $this->logger->debug("Authenticate finish params: " . json_encode($params));
         
+        // TODO: validate returned credential_id against the user's credentials
+        // TODO: handle exception if authentication fails?
         return $this->callFFI('login_finish', $params);
     }
 

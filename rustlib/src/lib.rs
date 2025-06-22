@@ -289,6 +289,7 @@ fn handle_login_finish(v: &Value) -> Result<Value, String> {
     let result = webauthn
         .finish_passkey_authentication(&req.client_data, &req.auth_state)
         .map_err(|e| {
+            // indicates authentication failed
             format!("Failed to finish authentication: {}", e)
         })?;
     
@@ -296,12 +297,14 @@ fn handle_login_finish(v: &Value) -> Result<Value, String> {
     struct LoginFinishResponse {
         credential_id: String,
         counter: u32,
+        needs_update: bool,
     }
 
     // Format the result to match the expected structure
     let formatted_result = LoginFinishResponse {
         credential_id: base64::engine::general_purpose::STANDARD.encode(result.cred_id().as_ref()),
         counter: result.counter(),
+        needs_update: result.needs_update(),
     };
     
     Ok(serde_json::to_value(formatted_result).unwrap())
