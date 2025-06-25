@@ -179,6 +179,171 @@ fn handle_register_begin(v: &Value) -> Result<Value, String> {
     Ok(serde_json::to_value(result).unwrap())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_handle_register_begin_success() {
+        let input = json!({
+            "op": "register_begin",
+            "user_id": "test_user_123",
+            "user_name": "Test User",
+            "rp_id": "example.com",
+            "rp_origin": "https://example.com"
+        });
+
+        let result = handle_register_begin(&input);
+        assert!(result.is_ok(), "Registration should succeed with valid input");
+
+        let result_value = result.unwrap();
+        
+        // Verify the response structure
+        assert!(result_value.get("challenge").is_some(), "Response should contain challenge");
+        assert!(result_value.get("registration").is_some(), "Response should contain registration");
+        assert!(result_value.get("uuid").is_some(), "Response should contain uuid");
+
+        // Verify challenge structure
+        let challenge = result_value.get("challenge").unwrap();
+        assert!(challenge.get("publicKey").is_some(), "Challenge should contain publicKey");
+        
+        let public_key = challenge.get("publicKey").unwrap();
+        assert!(public_key.get("challenge").is_some(), "publicKey should contain challenge");
+        assert!(public_key.get("rp").is_some(), "publicKey should contain rp");
+        assert!(public_key.get("user").is_some(), "publicKey should contain user");
+        assert!(public_key.get("pubKeyCredParams").is_some(), "publicKey should contain pubKeyCredParams");
+        assert!(public_key.get("timeout").is_some(), "publicKey should contain timeout");
+        assert!(public_key.get("attestation").is_some(), "publicKey should contain attestation");
+
+        // Verify user info in challenge - user.id is base64 encoded
+        let user = public_key.get("user").unwrap();
+        // The user.id is base64 encoded, so we can't directly compare the string
+        assert!(user.get("id").is_some(), "User should have an id field");
+        // The WebAuthn library sets user.name to user_id
+        assert_eq!(user.get("name").unwrap().as_str().unwrap(), "test_user_123");
+        // displayName might be the same as user_name or user_id
+        assert!(user.get("displayName").is_some(), "User should have displayName field");
+
+        // Verify RP info in challenge
+        let rp = public_key.get("rp").unwrap();
+        assert_eq!(rp.get("id").unwrap().as_str().unwrap(), "example.com");
+        // The WebAuthn library sets rp.name to rp_id
+        assert_eq!(rp.get("name").unwrap().as_str().unwrap(), "example.com");
+    }
+
+    #[test]
+    fn test_handle_register_begin_missing_user_id() {
+        let input = json!({
+            "op": "register_begin",
+            "user_name": "Test User",
+            "rp_id": "example.com",
+            "rp_origin": "https://example.com"
+        });
+
+        let result = handle_register_begin(&input);
+        assert!(result.is_err(), "Should fail when user_id is missing");
+        assert!(result.unwrap_err().contains("Failed to parse register_begin request"));
+    }
+
+    #[test]
+    fn test_handle_register_begin_missing_user_name() {
+        let input = json!({
+            "op": "register_begin",
+            "user_id": "test_user_123",
+            "rp_id": "example.com",
+            "rp_origin": "https://example.com"
+        });
+
+        let result = handle_register_begin(&input);
+        assert!(result.is_err(), "Should fail when user_name is missing");
+        assert!(result.unwrap_err().contains("Failed to parse register_begin request"));
+    }
+
+    #[test]
+    fn test_handle_register_begin_missing_rp_id() {
+        let input = json!({
+            "op": "register_begin",
+            "user_id": "test_user_123",
+            "user_name": "Test User",
+            "rp_origin": "https://example.com"
+        });
+
+        let result = handle_register_begin(&input);
+        assert!(result.is_err(), "Should fail when rp_id is missing");
+        assert!(result.unwrap_err().contains("Failed to parse register_begin request"));
+    }
+
+    #[test]
+    fn test_handle_register_begin_missing_rp_origin() {
+        let input = json!({
+            "op": "register_begin",
+            "user_id": "test_user_123",
+            "user_name": "Test User",
+            "rp_id": "example.com"
+        });
+
+        let result = handle_register_begin(&input);
+        assert!(result.is_err(), "Should fail when rp_origin is missing");
+        assert!(result.unwrap_err().contains("Failed to parse register_begin request"));
+    }
+
+    #[test]
+    fn test_handle_register_begin_special_characters_in_names() {
+        let input = json!({
+            "op": "register_begin",
+            "user_id": "user_with_special_chars_123",
+            "user_name": "Test User with Special Characters: !@#$%^&*()",
+            "rp_id": "example.com",
+            "rp_origin": "https://example.com"
+        });
+
+        let result = handle_register_begin(&input);
+        assert!(result.is_ok(), "Should handle special characters in user names");
+
+        let result_value = result.unwrap();
+        let challenge = result_value.get("challenge").unwrap();
+        let public_key = challenge.get("publicKey").unwrap();
+        let user = public_key.get("user").unwrap();
+        
+        // The WebAuthn library sets user.name to user_id
+        assert_eq!(user.get("name").unwrap().as_str().unwrap(), "user_with_special_chars_123");
+        // displayName might be the same as user_name or user_id
+        assert!(user.get("displayName").is_some(), "User should have displayName field");
+    }
+
+    #[test]
+    fn test_handle_register_begin_invalid_json() {
+        // Test with malformed JSON structure
+        let input = json!({
+            "op": "register_begin",
+            "user_id": 123, // Should be string
+            "user_name": "Test User",
+            "rp_id": "example.com",
+            "rp_origin": "https://example.com"
+        });
+
+        let result = handle_register_begin(&input);
+        assert!(result.is_err(), "Should fail with invalid JSON types");
+        assert!(result.unwrap_err().contains("Failed to parse register_begin request"));
+    }
+
+    #[test]
+    fn test_handle_register_begin_extra_fields() {
+        let input = json!({
+            "op": "register_begin",
+            "user_id": "test_user_123",
+            "user_name": "Test User",
+            "rp_id": "example.com",
+            "rp_origin": "https://example.com",
+            "extra_field": "should_be_ignored"
+        });
+
+        let result = handle_register_begin(&input);
+        assert!(result.is_ok(), "Should succeed with extra fields (they should be ignored)");
+    }
+}
+
 fn handle_register_finish(v: &Value) -> Result<Value, String> {
     #[derive(serde::Deserialize)]
     struct RegisterFinishRequest {
