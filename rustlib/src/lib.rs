@@ -308,7 +308,6 @@ mod tests {
 
     #[test]
     fn test_handle_register_begin_invalid_json() {
-        // Test with malformed JSON structure
         let input = json!({
             "op": "register_begin",
             "user_id": 123, // Should be string
@@ -408,6 +407,271 @@ mod tests {
         let result = handle_login_begin(&input);
         assert!(result.is_err(), "Should fail when rp_origin is missing");
         assert!(result.unwrap_err().contains("Failed to parse login_begin request"));
+    }
+
+    // Tests for handle_register_finish
+    #[test]
+    fn test_handle_register_finish_missing_registration() {
+        let input = json!({
+            "op": "register_finish",
+            "client_data": {},
+            "rp_id": "example.com",
+            "rp_origin": "https://example.com"
+        });
+
+        let result = handle_register_finish(&input);
+        assert!(result.is_err(), "Should fail when registration field is missing");
+        assert!(result.unwrap_err().contains("Failed to parse register_finish request"));
+    }
+
+    #[test]
+    fn test_handle_register_finish_missing_client_data() {
+        let input = json!({
+            "op": "register_finish",
+            "registration": {},
+            "rp_id": "example.com",
+            "rp_origin": "https://example.com"
+        });
+
+        let result = handle_register_finish(&input);
+        assert!(result.is_err(), "Should fail when client_data field is missing");
+        assert!(result.unwrap_err().contains("Failed to parse register_finish request"));
+    }
+
+    #[test]
+    fn test_handle_register_finish_missing_rp_id() {
+        let input = json!({
+            "op": "register_finish",
+            "registration": {},
+            "client_data": {},
+            "rp_origin": "https://example.com"
+        });
+
+        let result = handle_register_finish(&input);
+        assert!(result.is_err(), "Should fail when rp_id is missing");
+        assert!(result.unwrap_err().contains("Failed to parse register_finish request"));
+    }
+
+    #[test]
+    fn test_handle_register_finish_missing_rp_origin() {
+        let input = json!({
+            "op": "register_finish",
+            "registration": {},
+            "client_data": {},
+            "rp_id": "example.com"
+        });
+
+        let result = handle_register_finish(&input);
+        assert!(result.is_err(), "Should fail when rp_origin is missing");
+        assert!(result.unwrap_err().contains("Failed to parse register_finish request"));
+    }
+
+    // Tests for handle_login_finish
+    #[test]
+    fn test_handle_login_finish_missing_auth_state() {
+        let input = json!({
+            "op": "login_finish",
+            "client_data": {},
+            "rp_id": "example.com",
+            "rp_origin": "https://example.com"
+        });
+
+        let result = handle_login_finish(&input);
+        assert!(result.is_err(), "Should fail when auth_state field is missing");
+        assert!(result.unwrap_err().contains("Failed to parse login_finish request"));
+    }
+
+    #[test]
+    fn test_handle_login_finish_missing_client_data() {
+        let input = json!({
+            "op": "login_finish",
+            "auth_state": {},
+            "rp_id": "example.com",
+            "rp_origin": "https://example.com"
+        });
+
+        let result = handle_login_finish(&input);
+        assert!(result.is_err(), "Should fail when client_data field is missing");
+        assert!(result.unwrap_err().contains("Failed to parse login_finish request"));
+    }
+
+    #[test]
+    fn test_handle_login_finish_missing_rp_id() {
+        let input = json!({
+            "op": "login_finish",
+            "auth_state": {},
+            "client_data": {},
+            "rp_origin": "https://example.com"
+        });
+
+        let result = handle_login_finish(&input);
+        assert!(result.is_err(), "Should fail when rp_id is missing");
+        assert!(result.unwrap_err().contains("Failed to parse login_finish request"));
+    }
+
+    #[test]
+    fn test_handle_login_finish_missing_rp_origin() {
+        let input = json!({
+            "op": "login_finish",
+            "auth_state": {},
+            "client_data": {},
+            "rp_id": "example.com"
+        });
+
+        let result = handle_login_finish(&input);
+        assert!(result.is_err(), "Should fail when rp_origin is missing");
+        assert!(result.unwrap_err().contains("Failed to parse login_finish request"));
+    }
+
+    // Tests for rust_json_api and free_string
+    #[test]
+    fn test_rust_json_api_register_begin() {
+        let input = r#"{"op":"register_begin","user_id":"test_user","user_name":"Test User","rp_id":"example.com","rp_origin":"https://example.com"}"#;
+        
+        let input_cstr = std::ffi::CString::new(input).unwrap();
+        let result_ptr = rust_json_api(input_cstr.as_ptr());
+        
+        assert!(!result_ptr.is_null(), "Should return non-null pointer");
+        
+        let result_str = unsafe { std::ffi::CStr::from_ptr(result_ptr) };
+        let result = result_str.to_str().unwrap();
+        
+        // Parse the result to verify it's valid JSON
+        let parsed: serde_json::Value = serde_json::from_str(result).unwrap();
+        assert!(parsed.get("challenge").is_some(), "Should contain challenge");
+        assert!(parsed.get("registration").is_some(), "Should contain registration");
+        assert!(parsed.get("uuid").is_some(), "Should contain uuid");
+        
+        // Clean up
+        free_string(result_ptr);
+    }
+
+    #[test]
+    fn test_rust_json_api_login_begin() {
+        let input = r#"{"op":"login_begin","_user_id":"test_user","passkeys":[],"rp_id":"example.com","rp_origin":"https://example.com"}"#;
+        
+        let input_cstr = std::ffi::CString::new(input).unwrap();
+        let result_ptr = rust_json_api(input_cstr.as_ptr());
+        
+        assert!(!result_ptr.is_null(), "Should return non-null pointer");
+        
+        let result_str = unsafe { std::ffi::CStr::from_ptr(result_ptr) };
+        let result = result_str.to_str().unwrap();
+        
+        // Parse the result to verify it's valid JSON
+        let parsed: serde_json::Value = serde_json::from_str(result).unwrap();
+        assert!(parsed.get("challenge").is_some(), "Should contain challenge");
+        assert!(parsed.get("auth_state").is_some(), "Should contain auth_state");
+        
+        // Clean up
+        free_string(result_ptr);
+    }
+
+    #[test]
+    fn test_rust_json_api_null_input() {
+        let result_ptr = rust_json_api(std::ptr::null());
+        
+        assert!(!result_ptr.is_null(), "Should return error response for null input");
+        
+        let result_str = unsafe { std::ffi::CStr::from_ptr(result_ptr) };
+        let result = result_str.to_str().unwrap();
+        
+        // Parse the result to verify it's an error
+        let parsed: serde_json::Value = serde_json::from_str(result).unwrap();
+        assert!(parsed.get("error").is_some(), "Should contain error field");
+        assert_eq!(parsed["error"], "Input is null");
+        
+        // Clean up
+        free_string(result_ptr);
+    }
+
+    #[test]
+    fn test_rust_json_api_invalid_json() {
+        let input = r#"{"op":"register_begin","user_id":"test_user"#; // Invalid JSON
+        
+        let input_cstr = std::ffi::CString::new(input).unwrap();
+        let result_ptr = rust_json_api(input_cstr.as_ptr());
+        
+        assert!(!result_ptr.is_null(), "Should return error response for invalid JSON");
+        
+        let result_str = unsafe { std::ffi::CStr::from_ptr(result_ptr) };
+        let result = result_str.to_str().unwrap();
+        
+        // Parse the result to verify it's an error
+        let parsed: serde_json::Value = serde_json::from_str(result).unwrap();
+        assert!(parsed.get("error").is_some(), "Should contain error field");
+        assert_eq!(parsed["error"], "Error handling JSON");
+        assert!(parsed.get("details").is_some(), "Should contain details field");
+        assert!(parsed["details"].as_str().unwrap().contains("Failed to parse JSON"));
+        
+        // Clean up
+        free_string(result_ptr);
+    }
+
+    #[test]
+    fn test_rust_json_api_unknown_operation() {
+        let input = r#"{"op":"unknown_operation","user_id":"test_user"}"#;
+        
+        let input_cstr = std::ffi::CString::new(input).unwrap();
+        let result_ptr = rust_json_api(input_cstr.as_ptr());
+        
+        assert!(!result_ptr.is_null(), "Should return error response for unknown operation");
+        
+        let result_str = unsafe { std::ffi::CStr::from_ptr(result_ptr) };
+        let result = result_str.to_str().unwrap();
+        
+        // Parse the result to verify it's an error
+        let parsed: serde_json::Value = serde_json::from_str(result).unwrap();
+        assert!(parsed.get("error").is_some(), "Should contain error field");
+        assert_eq!(parsed["error"], "Error handling JSON");
+        assert!(parsed.get("details").is_some(), "Should contain details field");
+        assert!(parsed["details"].as_str().unwrap().contains("Unknown operation"));
+        
+        // Clean up
+        free_string(result_ptr);
+    }
+
+    #[test]
+    fn test_rust_json_api_missing_op() {
+        let input = r#"{"user_id":"test_user","user_name":"Test User"}"#;
+        
+        let input_cstr = std::ffi::CString::new(input).unwrap();
+        let result_ptr = rust_json_api(input_cstr.as_ptr());
+        
+        assert!(!result_ptr.is_null(), "Should return error response for missing op");
+        
+        let result_str = unsafe { std::ffi::CStr::from_ptr(result_ptr) };
+        let result = result_str.to_str().unwrap();
+        
+        // Parse the result to verify it's an error
+        let parsed: serde_json::Value = serde_json::from_str(result).unwrap();
+        assert!(parsed.get("error").is_some(), "Should contain error field");
+        assert_eq!(parsed["error"], "Error handling JSON");
+        assert!(parsed.get("details").is_some(), "Should contain details field");
+        assert!(parsed["details"].as_str().unwrap().contains("Missing or invalid 'op' field"));
+        
+        // Clean up
+        free_string(result_ptr);
+    }
+
+    #[test]
+    fn test_free_string_null_pointer() {
+        // Should not panic when called with null pointer
+        free_string(std::ptr::null_mut());
+    }
+
+    #[test]
+    fn test_free_string_valid_pointer() {
+        // Test that we can free a valid pointer
+        let input = r#"{"op":"register_begin","user_id":"test_user","user_name":"Test User","rp_id":"example.com","rp_origin":"https://example.com"}"#;
+        
+        let input_cstr = std::ffi::CString::new(input).unwrap();
+        let result_ptr = rust_json_api(input_cstr.as_ptr());
+        
+        assert!(!result_ptr.is_null(), "Should return non-null pointer");
+        
+        // Free the pointer - should not panic
+        free_string(result_ptr);
     }
 }
 
