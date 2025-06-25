@@ -2,17 +2,11 @@ use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use serde_json::Value;
 use serde::Serialize;
-use serde_json::json;                                                      
 use webauthn_rs::prelude::*;
 use std::sync::OnceLock;
 use url::Url;
 use uuid::Uuid;
 use base64::Engine;
-use std::fs::OpenOptions;
-use std::io::Write;
-use std::sync::Mutex;
-use chrono::Local;
-use serde_cbor;
 
 #[derive(Serialize)]
 struct RegistrationOutput {
@@ -398,7 +392,7 @@ fn start_registration(webauthn: &Webauthn, user_id: &str, user_name: &str) -> Re
 fn handle_login_begin(v: &Value) -> Result<Value, String> {
     #[derive(serde::Deserialize)]
     struct LoginBeginRequest {
-        user_id: String,
+        _user_id: String,
         passkeys: Vec<Passkey>,
         rp_id: String,
         rp_origin: String,
