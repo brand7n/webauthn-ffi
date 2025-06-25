@@ -336,6 +336,79 @@ mod tests {
         let result = handle_register_begin(&input);
         assert!(result.is_ok(), "Should succeed with extra fields (they should be ignored)");
     }
+
+    // Tests for handle_login_begin
+    #[test]
+    fn test_handle_login_begin_success() {
+        let input = json!({
+            "op": "login_begin",
+            "_user_id": "test_user_123",
+            "passkeys": [],
+            "rp_id": "example.com",
+            "rp_origin": "https://example.com"
+        });
+
+        let result = handle_login_begin(&input);
+        assert!(result.is_ok(), "Login should succeed with valid input");
+
+        let result_value = result.unwrap();
+        
+        // Verify the response structure
+        assert!(result_value.get("challenge").is_some(), "Response should contain challenge");
+        assert!(result_value.get("auth_state").is_some(), "Response should contain auth_state");
+
+        // Verify challenge structure
+        let challenge = result_value.get("challenge").unwrap();
+        assert!(challenge.get("publicKey").is_some(), "Challenge should contain publicKey");
+        
+        let public_key = challenge.get("publicKey").unwrap();
+        assert!(public_key.get("challenge").is_some(), "publicKey should contain challenge");
+        assert!(public_key.get("rpId").is_some(), "publicKey should contain rpId");
+        assert!(public_key.get("timeout").is_some(), "publicKey should contain timeout");
+        assert!(public_key.get("userVerification").is_some(), "publicKey should contain userVerification");
+    }
+
+    #[test]
+    fn test_handle_login_begin_missing_passkeys() {
+        let input = json!({
+            "op": "login_begin",
+            "_user_id": "test_user_123",
+            "rp_id": "example.com",
+            "rp_origin": "https://example.com"
+        });
+
+        let result = handle_login_begin(&input);
+        assert!(result.is_err(), "Should fail when passkeys field is missing");
+        assert!(result.unwrap_err().contains("Failed to parse login_begin request"));
+    }
+
+    #[test]
+    fn test_handle_login_begin_missing_rp_id() {
+        let input = json!({
+            "op": "login_begin",
+            "_user_id": "test_user_123",
+            "passkeys": [],
+            "rp_origin": "https://example.com"
+        });
+
+        let result = handle_login_begin(&input);
+        assert!(result.is_err(), "Should fail when rp_id is missing");
+        assert!(result.unwrap_err().contains("Failed to parse login_begin request"));
+    }
+
+    #[test]
+    fn test_handle_login_begin_missing_rp_origin() {
+        let input = json!({
+            "op": "login_begin",
+            "_user_id": "test_user_123",
+            "passkeys": [],
+            "rp_id": "example.com"
+        });
+
+        let result = handle_login_begin(&input);
+        assert!(result.is_err(), "Should fail when rp_origin is missing");
+        assert!(result.unwrap_err().contains("Failed to parse login_begin request"));
+    }
 }
 
 fn handle_register_finish(v: &Value) -> Result<Value, String> {
