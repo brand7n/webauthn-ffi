@@ -99,6 +99,12 @@ jobs:
         toolchain: stable
         override: true
 
+    - name: Install OpenSSL (Windows)
+      run: |
+        choco install openssl
+        refreshenv
+      shell: powershell
+
     - name: Cache dependencies
       uses: actions/cache@v3
       with:
@@ -113,7 +119,11 @@ jobs:
     - name: Build
       run: cargo build --verbose
       working-directory: rustlib
+      env:
+        OPENSSL_DIR: C:\ProgramData\chocolatey\lib\openssl\tools\openssl
 
     - name: Run tests
       run: cargo test --verbose
-      working-directory: rustlib 
+      working-directory: rustlib
+      env:
+        OPENSSL_DIR: C:\ProgramData\chocolatey\lib\openssl\tools\openssl 
