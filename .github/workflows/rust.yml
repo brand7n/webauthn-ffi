@@ -100,9 +100,13 @@ jobs:
         override: true
 
     - name: Install OpenSSL (Windows)
+      run: choco install openssl
+      shell: powershell
+
+    - name: Set up OpenSSL env vars (Windows)
       run: |
-        choco install openssl
-        refreshenv
+        echo "OPENSSL_DIR=C:\Program Files\OpenSSL" >> $env:GITHUB_ENV
+        echo "PATH=C:\Program Files\OpenSSL\bin;$env:PATH" >> $env:GITHUB_ENV
       shell: powershell
 
     - name: Cache dependencies
@@ -119,11 +123,7 @@ jobs:
     - name: Build
       run: cargo build --verbose
       working-directory: rustlib
-      env:
-        OPENSSL_DIR: C:\ProgramData\chocolatey\lib\openssl\tools\openssl
 
     - name: Run tests
       run: cargo test --verbose
-      working-directory: rustlib
-      env:
-        OPENSSL_DIR: C:\ProgramData\chocolatey\lib\openssl\tools\openssl 
+      working-directory: rustlib 
