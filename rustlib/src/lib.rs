@@ -46,8 +46,14 @@ fn get_webauthn(rp_id: &str, rp_origin: &str) -> Result<&'static Webauthn, Strin
     Ok(WEBAUTHN.get().expect("Webauthn instance should be initialized"))
 }
 
+/// # Safety
+/// 
+/// This function takes a raw C string pointer. The caller must ensure:
+/// - The pointer is valid and points to a null-terminated C string
+/// - The string contains valid UTF-8 data
+/// - The pointer remains valid for the duration of the function call
 #[no_mangle]
-pub extern "C" fn rust_json_api(input: *const c_char) -> *mut c_char {
+pub unsafe extern "C" fn rust_json_api(input: *const c_char) -> *mut c_char {
     //log("rust_json_api called");
     
     let c_str = unsafe {
@@ -87,8 +93,15 @@ pub extern "C" fn rust_json_api(input: *const c_char) -> *mut c_char {
     }
 }
 
+/// # Safety
+/// 
+/// This function takes a raw C string pointer that was previously returned by `rust_json_api`.
+/// The caller must ensure:
+/// - The pointer was returned by `rust_json_api` and hasn't been freed yet
+/// - The pointer is not null (though the function handles null safely)
+/// - The pointer is not used after this function call
 #[no_mangle]
-pub extern "C" fn free_string(ptr: *mut c_char) {
+pub unsafe extern "C" fn free_string(ptr: *mut c_char) {
     if !ptr.is_null() {
         unsafe {
             // Convert the raw pointer back to a CString and let it drop
@@ -116,7 +129,7 @@ fn handle_json(input: &str) -> Result<String, String> {
     //log("Parsing JSON input");
     let v: Value = serde_json::from_str(input).map_err(|e| {
         //log(&format!("Failed to parse JSON: {}", e));
-        format!("Failed to parse JSON: {}", e)
+        format!("Failed to parse JSON: {e}")
     })?;
     
     let op = v.get("op").and_then(|v| v.as_str()).ok_or_else(|| {
@@ -145,7 +158,7 @@ fn handle_json(input: &str) -> Result<String, String> {
         },
         _ => {
             //log(&format!("Unknown operation: {}", op));
-            Err(format!("Unknown operation: {}", op))
+            Err(format!("Unknown operation: {op}"))
         }
     }?;
 
@@ -163,7 +176,7 @@ fn handle_register_begin(v: &Value) -> Result<Value, String> {
     }
     
     let req: RegisterBeginRequest = serde_json::from_value(v.clone()).map_err(|e| {
-        format!("Failed to parse register_begin request: {}", e)
+        format!("Failed to parse register_begin request: {e}")
     })?;
     
     //log(&format!("Starting registration with RP ID: {}, Origin: {}", req.rp_id, req.rp_origin));
@@ -852,7 +865,7 @@ fn handle_register_finish(v: &Value) -> Result<Value, String> {
     }
     
     let req: RegisterFinishRequest = serde_json::from_value(v.clone()).map_err(|e| {
-        format!("Failed to parse register_finish request: {}", e)
+        format!("Failed to parse register_finish request: {e}")
     })?;
 
     //log(&format!("Finishing registration with RP ID: {}, Origin: {}", req.rp_id, req.rp_origin));
@@ -864,7 +877,7 @@ fn handle_register_finish(v: &Value) -> Result<Value, String> {
     let result = webauthn
         .finish_passkey_registration(&req.client_data, &req.registration)
         .map_err(|e| {
-            format!("Failed to finish registration: {}", e)
+            format!("Failed to finish registration: {e}")
         })?;
 
     Ok(serde_json::to_value(result).unwrap())
@@ -903,7 +916,7 @@ fn handle_login_begin(v: &Value) -> Result<Value, String> {
     }
     
     let req: LoginBeginRequest = serde_json::from_value(v.clone()).map_err(|e| {
-        format!("Failed to parse login_begin request: {}", e)
+        format!("Failed to parse login_begin request: {e}")
     })?;
     
     //log(&format!("Starting login with RP ID: {}, Origin: {}", req.rp_id, req.rp_origin));
@@ -914,7 +927,7 @@ fn handle_login_begin(v: &Value) -> Result<Value, String> {
     let (challenge, auth_state) = webauthn
         .start_passkey_authentication(&req.passkeys)
         .map_err(|e| {
-            format!("Failed to start authentication: {}", e)
+            format!("Failed to start authentication: {e}")
         })?;
     
     //log(&format!("Generated authentication challenge: {:?}", challenge));
@@ -940,7 +953,7 @@ fn handle_login_finish(v: &Value) -> Result<Value, String> {
     }
     
     let req: LoginFinishRequest = serde_json::from_value(v.clone()).map_err(|e| {
-        format!("Failed to parse login_finish request: {}", e)
+        format!("Failed to parse login_finish request: {e}")
     })?;
 
     //log(&format!("Finishing login with RP ID: {}, Origin: {}", req.rp_id, req.rp_origin));
@@ -953,7 +966,7 @@ fn handle_login_finish(v: &Value) -> Result<Value, String> {
         .finish_passkey_authentication(&req.client_data, &req.auth_state)
         .map_err(|e| {
             // indicates authentication failed
-            format!("Failed to finish authentication: {}", e)
+            format!("Failed to finish authentication: {e}")
         })?;
     
     #[derive(serde::Serialize)]
