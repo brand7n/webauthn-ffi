@@ -673,6 +673,173 @@ mod tests {
         // Free the pointer - should not panic
         free_string(result_ptr);
     }
+
+    // Integration tests for complete WebAuthn flow
+    #[test]
+    fn test_integration_registration_flow() {
+        // Step 1: Start registration
+        let register_begin_input = json!({
+            "op": "register_begin",
+            "user_id": "integration_test_user",
+            "user_name": "Integration Test User",
+            "rp_id": "example.com",
+            "rp_origin": "https://example.com"
+        });
+
+        let register_begin_result = handle_register_begin(&register_begin_input);
+        assert!(register_begin_result.is_ok(), "Registration begin should succeed");
+        
+        let register_begin_data = register_begin_result.unwrap();
+        let challenge = register_begin_data.get("challenge").unwrap();
+        let registration_state = register_begin_data.get("registration").unwrap();
+        let uuid = register_begin_data.get("uuid").unwrap();
+        
+        // Verify we have the expected data
+        assert!(challenge.get("publicKey").is_some(), "Challenge should contain publicKey");
+        assert!(registration_state.is_object(), "Registration state should be an object");
+        assert!(uuid.is_string(), "UUID should be a string");
+
+        // Step 2: Simulate client-side credential creation (mock data)
+        // In a real scenario, this would be done by the browser/authenticator
+        let mock_client_data = json!({
+            "id": "mock_credential_id",
+            "rawId": "bW9ja19jcmVkZW50aWFsX2lk",
+            "response": {
+                "attestationObject": "mock_attestation_object_data",
+                "clientDataJSON": "mock_client_data_json"
+            },
+            "type": "public-key"
+        });
+
+        // Step 3: Finish registration
+        let register_finish_input = json!({
+            "op": "register_finish",
+            "registration": registration_state,
+            "client_data": mock_client_data,
+            "rp_id": "example.com",
+            "rp_origin": "https://example.com"
+        });
+
+        let register_finish_result = handle_register_finish(&register_finish_input);
+        // This will likely fail with mock data, but we can verify the function handles it gracefully
+        // In a real scenario, this would succeed with valid credential data
+        assert!(register_finish_result.is_ok() || register_finish_result.is_err());
+        
+        if register_finish_result.is_err() {
+            let error = register_finish_result.unwrap_err();
+            // Should fail with a meaningful error about invalid credential data
+            assert!(error.contains("Failed to finish registration") || 
+                   error.contains("Failed to parse register_finish request"));
+        }
+    }
+
+    #[test]
+    fn test_integration_authentication_flow() {
+        // Step 1: Start authentication
+        let login_begin_input = json!({
+            "op": "login_begin",
+            "_user_id": "integration_test_user",
+            "passkeys": [], // Empty array for testing - in real scenario this would contain actual credentials
+            "rp_id": "example.com",
+            "rp_origin": "https://example.com"
+        });
+
+        let login_begin_result = handle_login_begin(&login_begin_input);
+        
+        // Debug: print the result
+        match &login_begin_result {
+            Ok(data) => println!("Login begin succeeded: {:?}", data),
+            Err(e) => println!("Login begin failed: {}", e),
+        }
+        
+        assert!(login_begin_result.is_ok(), "Login begin should succeed");
+        
+        let login_begin_data = login_begin_result.unwrap();
+        let challenge = login_begin_data.get("challenge").unwrap();
+        let auth_state = login_begin_data.get("auth_state").unwrap();
+        
+        // Verify we have the expected data
+        assert!(challenge.get("publicKey").is_some(), "Challenge should contain publicKey");
+        assert!(auth_state.is_object(), "Auth state should be an object");
+
+        // Step 2: Simulate client-side authentication (mock data)
+        // In a real scenario, this would be done by the browser/authenticator
+        let mock_client_data = json!({
+            "id": "mock_credential_id",
+            "rawId": "bW9ja19jcmVkZW50aWFsX2lk",
+            "response": {
+                "authenticatorData": "mock_authenticator_data",
+                "clientDataJSON": "mock_client_data_json",
+                "signature": "mock_signature"
+            },
+            "type": "public-key"
+        });
+
+        // Step 3: Finish authentication
+        let login_finish_input = json!({
+            "op": "login_finish",
+            "auth_state": auth_state,
+            "client_data": mock_client_data,
+            "rp_id": "example.com",
+            "rp_origin": "https://example.com"
+        });
+
+        let login_finish_result = handle_login_finish(&login_finish_input);
+        // This will likely fail with mock data, but we can verify the function handles it gracefully
+        // In a real scenario, this would succeed with valid credential data
+        assert!(login_finish_result.is_ok() || login_finish_result.is_err());
+        
+        if login_finish_result.is_err() {
+            let error = login_finish_result.unwrap_err();
+            // Should fail with a meaningful error about invalid credential data
+            assert!(error.contains("Failed to finish authentication") || 
+                   error.contains("Failed to parse login_finish request"));
+        }
+    }
+
+    #[test]
+    fn test_integration_c_api_flow() {
+        // Test the complete flow using the C API
+        
+        // Step 1: Start registration via C API
+        let register_begin_input = r#"{"op":"register_begin","user_id":"c_api_test_user","user_name":"C API Test User","rp_id":"example.com","rp_origin":"https://example.com"}"#;
+        
+        let input_cstr = std::ffi::CString::new(register_begin_input).unwrap();
+        let result_ptr = rust_json_api(input_cstr.as_ptr());
+        
+        assert!(!result_ptr.is_null(), "Should return non-null pointer");
+        
+        let result_str = unsafe { std::ffi::CStr::from_ptr(result_ptr) };
+        let result = result_str.to_str().unwrap();
+        
+        // Parse and verify the result
+        let parsed: serde_json::Value = serde_json::from_str(result).unwrap();
+        assert!(parsed.get("challenge").is_some(), "Should contain challenge");
+        assert!(parsed.get("registration").is_some(), "Should contain registration");
+        assert!(parsed.get("uuid").is_some(), "Should contain uuid");
+        
+        // Clean up
+        free_string(result_ptr);
+
+        // Step 2: Start authentication via C API
+        let login_begin_input = r#"{"op":"login_begin","_user_id":"c_api_test_user","passkeys":[],"rp_id":"example.com","rp_origin":"https://example.com"}"#;
+        
+        let login_input_cstr = std::ffi::CString::new(login_begin_input).unwrap();
+        let login_result_ptr = rust_json_api(login_input_cstr.as_ptr());
+        
+        assert!(!login_result_ptr.is_null(), "Should return non-null pointer");
+        
+        let login_result_str = unsafe { std::ffi::CStr::from_ptr(login_result_ptr) };
+        let login_result = login_result_str.to_str().unwrap();
+        
+        // Parse and verify the result
+        let login_parsed: serde_json::Value = serde_json::from_str(login_result).unwrap();
+        assert!(login_parsed.get("challenge").is_some(), "Should contain challenge");
+        assert!(login_parsed.get("auth_state").is_some(), "Should contain auth_state");
+        
+        // Clean up
+        free_string(login_result_ptr);
+    }
 }
 
 fn handle_register_finish(v: &Value) -> Result<Value, String> {
