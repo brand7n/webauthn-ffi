@@ -99,14 +99,21 @@ jobs:
         toolchain: stable
         override: true
 
-    - name: Install OpenSSL (Windows)
-      run: choco install openssl
+    - name: Install vcpkg and OpenSSL (Windows)
+      run: |
+        git clone https://github.com/Microsoft/vcpkg.git
+        cd vcpkg
+        .\bootstrap-vcpkg.bat
+        .\vcpkg install openssl:x64-windows
+        echo "VCPKG_ROOT=$PWD" >> $env:GITHUB_ENV
       shell: powershell
 
     - name: Set up OpenSSL env vars (Windows)
       run: |
-        echo "OPENSSL_DIR=C:\Program Files\OpenSSL" >> $env:GITHUB_ENV
-        echo "PATH=C:\Program Files\OpenSSL\bin;$env:PATH" >> $env:GITHUB_ENV
+        echo "OPENSSL_DIR=$env:VCPKG_ROOT\installed\x64-windows" >> $env:GITHUB_ENV
+        echo "OPENSSL_LIB_DIR=$env:VCPKG_ROOT\installed\x64-windows\lib" >> $env:GITHUB_ENV
+        echo "OPENSSL_INCLUDE_DIR=$env:VCPKG_ROOT\installed\x64-windows\include" >> $env:GITHUB_ENV
+        echo "PATH=$env:VCPKG_ROOT\installed\x64-windows\bin;$env:PATH" >> $env:GITHUB_ENV
       shell: powershell
 
     - name: Cache dependencies
